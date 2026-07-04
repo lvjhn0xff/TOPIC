@@ -1,0 +1,1 @@
+pip install numpy scipy pandas scikit-learn imblearn xgboost matplotlib notebook
