@@ -57,14 +57,14 @@ class ClassificationPerformance(Printing):
         self.compute_f1_score() 
         self.compute_precision_score()
         self.compute_recall_score() 
-        self.compute_pr_auc_score() 
-        self.compute_roc_auc_score() 
-        self.compute_brier_score_loss() 
-        self.compute_hinge_loss() 
-        self.compute_log_loss() 
+        # self.compute_pr_auc_score() 
+        # self.compute_roc_auc_score() 
+        # self.compute_brier_score_loss() 
+        # self.compute_hinge_loss() 
+        # self.compute_log_loss() 
         self.generate_confusion_matrix() 
-        self.generate_pr_auc_plot() 
-        self.generate_roc_auc_plot()
+        # self.generate_pr_auc_plot() 
+        # self.generate_roc_auc_plot()
 
         self.generate_decision_boundary_display(
             self.split_run.X_train, self.split_run.y_train
@@ -490,7 +490,7 @@ class ClassificationPerformance(Printing):
         )
         self.scores["confusion_matrix"] = cm
         labels = self.split_run.experiment.classes
-        display_confusion_matrix(cm, labels, prefix=self.indent + "\t")
+        display_confusion_matrix(cm, labels, prefix="\t" * (self.indent + 1))
 
         fig, ax = plt.subplots(figsize=(6, 6))
 

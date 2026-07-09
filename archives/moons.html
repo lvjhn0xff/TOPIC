@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TOPIC-3 Base Unit Continuous Prototype</title>
+    <style>
+        body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1, h2 { color: #55ff55; }
+        .panel { background: #222; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #444; }
+        button { background: #44db44; color: black; font-weight: bold; padding: 10px 20px; border: none; cursor: pointer; border-radius: 3px; }
+        button:hover { background: #22aa22; }
+        #log { white-space: pre-wrap; font-size: 12px; max-height: 300px; overflow-y: auto; background: #000; padding: 10px; border: 1px solid #333; }
+        canvas { background: #000; display: block; margin: 10px 0; border: 1px solid #444; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>TOPIC-3 (Base Unit) Continuous Classifier</h1>
+    <p>This prototype runs the single-paragraph version of the TOPIC-3 Base Unit network architecture indefinitely using Particle Swarm Optimization (PSO) on a synthetic Moon-shaped dataset.</p>
+
+    <div class="panel">
+        <button id="btnRun">Start Continuous Optimization</button>
+        <span id="status" style="margin-left: 15px; color: #ffff55;">Ready.</span>
+    </div>
+
+    <div class="panel">
+        <h2>Decision Boundary Visualization</h2>
+        <canvas id="canvas" width="400" height="400"></canvas>
+    </div>
+
+    <div class="panel">
+        <h2>Training Progress Log (Infinite Loop)</h2>
+        <div id="log"></div>
+    </div>
+</div>
+
+<script>
+// --- Dataset Generation (make_moons clone) ---
+function generateMoons(samples, noise = 0.1) {
+    const data = [];
+    const nSamplesOut = Math.floor(samples / 2);
+    const nSamplesIn = samples - nSamplesOut;
+
+    for (let i = 0; i < nSamplesOut; i++) {
+        const theta = (i / (nSamplesOut - 1)) * Math.PI;
+        const x = Math.cos(theta) + (Math.random() - 0.5) * noise;
+        const y = Math.sin(theta) + (Math.random() - 0.5) * noise;
+        data.push({ x: [x, y], label: 0 });
+    }
+    for (let i = 0; i < nSamplesIn; i++) {
+        const theta = (i / (nSamplesIn - 1)) * Math.PI;
+        const x = 1 - Math.cos(theta) + (Math.random() - 0.5) * noise;
+        const y = 0.5 - Math.sin(theta) + (Math.random() - 0.5) * noise;
+        data.push({ x: [x, y], label: 1 });
+    }
+    return data;
+}
+
+// --- TOPIC-3 Core Math Mechanics ---
+const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+const cube = (x) => x * x * x 
+const norm = (x) => 2 * (sigmoid(x) - 0.5)
+
+function forwardTopic3(x, weights) {
+    // Phase 1: Normalization
+    const t = x.map(v => norm(v)); 
+    const n = t.length; 
+
+    // Phase 2: Complementation (Aggregation)
+    const t_prime = new Array(n);
+    for (let i = 0; i < n; i++) {
+        let weightedSum = 0;
+        for (let j = 0; j < n; j++) {
+            if (i !== j) {
+                weightedSum += t[j] * weights.agg[i][j];
+            }
+        }
+        t_prime[i] = weightedSum; 
+    }
+
+    // Fission & Fusion into Paragraph 0 (h0)
+    const h0 = new Array(n);
+    for (let i = 0; i < n; i++) {
+        const F0 = t[i];
+        const F1 = t_prime[i];
+        const fuseVal = ((F0 * weights.wf0[i]) + (F1 * weights.wf1[i])) / 2
+        h0[i] = cube(fuseVal); 
+    }
+
+    // Comprehension: Perspectives & Insights
+    const e0 = new Array(n);
+    for (let i = 0; i < n; i++) {
+        e0[i] = cube(weights.w_e[i] * h0[i] + weights.b_e[i]); 
+    }
+
+    const insights = new Array(n);
+    for (let j = 0; j < n; j++) {
+        insights[j] = cube(weights.w_i[j] * h0[j] + weights.b_i[j]); 
+    }
+
+    // Generalized Summary (GS)
+    let summaryInput = 0;
+    for (let k = 0; k < n; k++) {
+        summaryInput += (e0[k] * weights.w_s_e[k]) + (insights[k] * weights.w_s_i[k]);
+    }
+    return sigmoid(summaryInput + weights.b_s); 
+}
+
+function unpackWeights(flatArr, inputDim) {
+    let ptr = 0;
+    const n = inputDim;
+    
+    const agg = [];
+    for (let i = 0; i < n; i++) {
+        agg.push(flatArr.slice(ptr, ptr + n));
+        ptr += n;
+    }
+    
+    const wf0 = flatArr.slice(ptr, ptr + n); ptr += n;
+    const wf1 = flatArr.slice(ptr, ptr + n); ptr += n;
+    const bias = flatArr.slice(ptr, ptr + n); ptr += n;
+    const w_e = flatArr.slice(ptr, ptr + n); ptr += n;
+    const b_e = flatArr.slice(ptr, ptr + n); ptr += n;
+    const w_i = flatArr.slice(ptr, ptr + n); ptr += n;
+    const b_i = flatArr.slice(ptr, ptr + n); ptr += n;
+    const w_s_e = flatArr.slice(ptr, ptr + n); ptr += n;
+    const w_s_i = flatArr.slice(ptr, ptr + n); ptr += n;
+    const b_s = flatArr[ptr];
+    
+    return { agg, wf0, wf1, bias, w_e, b_e, w_i, b_i, w_s_e, w_s_i, b_s };
+}
+
+function computeLoss(dataset, flatWeights) {
+    const weights = unpackWeights(flatWeights, 2);
+    let totalLoss = 0;
+    for (const sample of dataset) {
+        const pred = forwardTopic3(sample.x, weights);
+        const eps = 1e-15;
+        const p = Math.max(eps, Math.min(1 - eps, pred));
+        totalLoss -= sample.label * Math.log(p) + (1 - sample.label) * Math.log(1 - p);
+    }
+    return totalLoss / dataset.length;
+}
+
+// --- Visual Canvas Engine ---
+function drawBoundary(dataset, flatWeights) {
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const weights = unpackWeights(flatWeights, 2);
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const mapX = (realX) => ((realX + 1.5) / 4.0) * canvas.width;
+    const mapY = (realY) => (1.0 - (realY + 1.0) / 2.5) * canvas.height;
+
+    const resolution = 4;
+    for (let xPx = 0; xPx < canvas.width; xPx += resolution) {
+        for (let yPx = 0; yPx < canvas.height; yPx += resolution) {
+            const realX = (xPx / canvas.width) * 4.0 - 1.5;
+            const realY = ((canvas.height - yPx) / canvas.height) * 2.5 - 1.0;
+
+            const score = forwardTopic3([realX, realY], weights);
+            ctx.fillStyle = `rgba(${Math.floor(255 * score)}, 0, ${Math.floor(255 * (1 - score))}, 0.25)`;
+            ctx.fillRect(xPx, yPx, resolution, resolution);
+        }
+    }
+
+    for (const sample of dataset) {
+        ctx.beginPath();
+        ctx.arc(mapX(sample.x[0]), mapY(sample.x[1]), 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = sample.label === 0 ? '#ff3333' : '#3333ff';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 0.8;
+        ctx.fill();
+        ctx.stroke();
+    }
+}
+
+// --- Core Initialization & Endless Optimization loop ---
+let running = false;
+
+document.getElementById('btnRun').addEventListener('click', () => {
+    if (running) return; // Prevent multiple instances
+    running = true;
+
+    const logDiv = document.getElementById('log');
+    const statusSpan = document.getElementById('status');
+    logDiv.innerHTML = "Initializing environment components...\n";
+    statusSpan.textContent = "Running Infinitely...";
+
+    const dataset = generateMoons(120, 0.1);
+    const inputDim = 2;
+    const paramCount = (inputDim * inputDim) + (inputDim * 9) + 1; 
+
+    const particleCount = 100;
+    const c1 = 1.5, c2 = 1.5;
+    let w = 0.8;
+
+    const particles = [];
+    let gBestPos = null;
+    let gBestValue = Infinity;
+
+    for (let i = 0; i < particleCount; i++) {
+        const pos = Array.from({ length: paramCount }, () => (Math.random() - 0.5) * 5.0);
+        const vel = Array.from({ length: paramCount }, () => (Math.random() - 0.5) * 1.0);
+        const fitness = computeLoss(dataset, pos);
+        
+        particles.push({
+            position: pos,
+            velocity: vel,
+            pBestPos: [...pos],
+            pBestValue: fitness
+        });
+
+        if (fitness < gBestValue) {
+            gBestValue = fitness;
+            gBestPos = [...pos];
+        }
+    }
+
+    let epoch = 0;
+    function continuousOptStep() {
+        for (let p of particles) {
+            for (let d = 0; d < paramCount; d++) {
+                const r1 = Math.random();
+                const r2 = Math.random();
+                p.velocity[d] = w * p.velocity[d] + c1 * r1 * (p.pBestPos[d] - p.position[d]) + c2 * r2 * (gBestPos[d] - p.position[d]);
+                p.position[d] += p.velocity[d];
+            }
+
+            const currentFitness = computeLoss(dataset, p.position);
+            if (currentFitness < p.pBestValue) {
+                p.pBestValue = currentFitness;
+                p.pBestPos = [...p.position];
+            }
+            if (currentFitness < gBestValue) {
+                gBestValue = currentFitness;
+                gBestPos = [...p.position];
+            }
+        }
+
+        // To keep particles exploration-capable long term, we scale inertia floor safely
+        w = Math.max(0.4, w * 0.995); 
+        
+        // Randomly perturb or inject variance into one lagging particle over time to avoid total stagnation 
+        if (epoch % 20 === 0) {
+            let escapeIndex = Math.floor(Math.random() * particleCount);
+            particles[escapeIndex].position = Array.from({ length: paramCount }, () => (Math.random() - 0.5) * 5.0);
+        }
+
+        if (epoch % 5 === 0) {
+            logDiv.innerHTML += `Iteration ${epoch + 1} -> Continuous Global Best Loss: ${gBestValue.toFixed(6)}\n`;
+            
+            // Trim log window length visually to avoid browser performance lag over extended durations
+            if (logDiv.innerHTML.split('\n').length > 100) {
+                logDiv.innerHTML = logDiv.innerHTML.split('\n').slice(-50).join('\n');
+            }
+            logDiv.scrollTop = logDiv.scrollHeight;
+            drawBoundary(dataset, gBestPos);
+        }
+        
+        epoch++;
+        requestAnimationFrame(continuousOptStep);
+    }
+
+    requestAnimationFrame(continuousOptStep);
+});
+</script>
+</body>
+</html>

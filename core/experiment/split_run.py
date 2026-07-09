@@ -173,7 +173,7 @@ class SplitRun(Printing):
             y_hat = self.predict_train,
             y_proba = self.predict_proba_train
         )
-        train_performance.indent = self.indent + "\t"
+        train_performance.indent = self.indent + 1
         train_performance.compute()
 
         self.print(f"> Evaluating on test set.")
@@ -183,5 +183,5 @@ class SplitRun(Printing):
             y_hat = self.predict_test,
             y_proba = self.predict_proba_test
         ) 
-        test_performance.indent = self.indent + "\t"
+        test_performance.indent = self.indent + 1
         test_performance.compute()

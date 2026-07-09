@@ -1,7 +1,8 @@
-from sklearn.model_selection import RepeatedStratifiedKFold
+from sklearn.model_selection import StratifiedKFold
 from imblearn.pipeline import Pipeline
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split
 
 from utils.python.printing import Printing
 
@@ -27,9 +28,8 @@ class CrossValidationExperiment(Printing):
         y = None, 
 
         # Sampling Configuration 
-        holdout_size = 0.2, 
-        n_splits = 10, 
-        n_repeats = 1,
+        outer_folds = 10,
+        inner_folds = 5,
 
         # Random Seed 
         random_state = 42,
@@ -48,10 +48,10 @@ class CrossValidationExperiment(Printing):
         self.X = pd.DataFrame(X) 
         self.y = pd.Series(y) 
 
+
         # Sampling Configuration 
-        self.holdout_size = holdout_size
-        self.n_splits = n_splits
-        self.n_repeats = n_repeats 
+        self.outer_folds = outer_folds
+        self.inner_folds = inner_folds
 
         # Cross Validator 
         self.cv = None
@@ -70,41 +70,82 @@ class CrossValidationExperiment(Printing):
         self.multiclass = self.class_count > 2
         self.binary = self.class_count == 2
 
+        # Repeats 
+        self.repeats = [] 
+
     def describe_dataset(self): 
         self.print(f"\tX = {self.X.shape}")
         self.print(f"\ty = {self.y.shape}")
 
     def run(self): 
         self.print(f"#" * 80)
-        self.print(f"Experiment: {self.experiment_id}")
-        self.print(f"#" * 80)
+        self.print(f"RUNNING EXPERIMENT REPEATS")
+        self.print(f"#" * 80)    
 
-        # Compute and display general statistics about dataset.
-        self.print(f"{self.indent}# Describing dataset.")
-        self.describe_dataset()
-
-        # Create cross validation splitter.
-        self.print(f"{self.indent}# Creating cross validation splitter.")
-        self.cv = RepeatedStratifiedKFold(
-            n_splits=self.n_splits, 
-            n_repeats=self.n_repeats,
-            random_state=self.random_state
+        # Create repeat splitter.
+        self.print(f"{self.indent}# Creating experiment repeat splitter.")
+        self.cv = StratifiedKFold(
+            n_splits=self.outer_folds, 
+            random_state=self.random_state,
+            shuffle=True
         )
 
         # Loop over splits.
         self.print(f"# Looping over splits.")
         fold_no = 0
-        for train_index, test_index in self.cv.split(self.X, self.y): 
+    
+        self.indent += 1
+
+        for main_index, holdout_index in self.cv.split(self.X, self.y): 
+            self.print(f"\t# IN REPEAT {fold_no + 1}")   
+
+            # Split X_train and X_holdout
+            self.print(f"\t\t> Splitting dataset to X_train and X_test.")
+            X, X_holdout = self.X.iloc[main_index], self.X.iloc[holdout_index] 
+            y, y_holdout = self.y.iloc[main_index], self.y.iloc[holdout_index] 
+
+            # Run repetition on main split.
+            self.indent += 1 
+            self.run_repeat(X, y) 
+            self.indent -= 1
+
+            # Increment fold number.
+            self.print(f"\t\t> Fold finished.")
+            fold_no +=1 
+
+
+    def run_repeat(self, X, y, repeat_no=1): 
+        self.print(f"#" * 80)
+        self.print(f"Experiment: {self.experiment_id}")
+        self.print(f"#" * 80)
+
+        # Compute and display general statistics about dataset.
+        self.print(f"# Describing dataset.")
+        self.describe_dataset()
+
+        # Create cross validation splitter.
+        self.print(f"# Creating cross validation splitter.")
+        self.cv = StratifiedKFold(
+            n_splits=self.inner_folds, 
+            random_state=self.random_state,
+            shuffle=True
+        )
+
+        # Loop over splits.
+        self.print(f"# Looping over splits.")
+        fold_no = 0
+    
+        for train_index, val_index in self.cv.split(X, y): 
             self.print(f"\t# IN FOLD {fold_no + 1}")   
 
             # Split X_train and X_test
             self.print(f"\t\t> Splitting dataset to X_train and X_test.")
-            X_train, X_test = self.X.loc[train_index], self.X.loc[test_index] 
-            y_train, y_test = self.y.loc[train_index], self.y.loc[test_index] 
+            X_train, X_val = X.iloc[train_index], X.iloc[val_index] 
+            y_train, y_val = y.iloc[train_index], y.iloc[val_index] 
 
             # Create Pipeline
             self.print(f"\t\t> Creating pipeline.")
-            pipeline = self.pipeline_fn(fold_no, X_train, X_test) 
+            pipeline = self.pipeline_fn(fold_no, X_train, X_val) 
 
             # Run Split 
             self.print(f"\t\t> Running experiment on split.")
@@ -113,32 +154,31 @@ class CrossValidationExperiment(Printing):
                 context=self,
                 pipeline=pipeline, 
                 X_train=X_train,
-                X_test=X_test,
+                X_test=X_val,
                 y_train=y_train, 
-                y_test=y_test, 
+                y_test=y_val, 
                 plot_decision_boundary=X_train.shape[0] == 2
             )
-            split_run.set_indent(self.indent + "\t\t")
+            split_run.set_indent(self.indent + 1)
 
             # Pre-Training model.
-            print(f"{self.indent}\t\t> Running pre-training.") 
+            self.print("> Running pre-training.") 
             split_run.pretraining()
 
             # Train model.
-            print(f"{self.indent}\t\t> Training model.") 
+            self.print("> Training model.") 
             split_run.train()
 
             # Test model. 
-            print(f"{self.indent}\t\t> Making predictions.")
+            self.print(f"> Making predictions.")
             split_run.make_predictions()
 
             # Evaluate model. 
-            print(f"{self.indent}\t\t> Evaluating model") 
+            self.print(f"> Evaluating model") 
             split_run.evaluate()
 
             # Increment fold number.
             self.print(f"\t\t> Fold finished.")
             fold_no +=1 
 
-
-
+      

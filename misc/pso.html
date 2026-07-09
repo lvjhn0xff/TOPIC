@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOPIC-K BU + Sigmoid Activations (Except Final Cubic) (PSO Engine)</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #aaa;
+            margin-bottom: 25px;
+            font-size: 0.95rem;
+        }
+        .container {
+            display: flex;
+            justify-content: center;
+            gap: 25px;
+            flex-wrap: wrap;
+        }
+        .card {
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            padding: 18px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            width: 340px;
+            text-align: center;
+        }
+        canvas {
+            background-color: #050505;
+            border-radius: 8px;
+            margin-top: 12px;
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.1);
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1/1;
+        }
+        .stats {
+            margin-top: 12px;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-around;
+            background: #2b2b2b;
+            padding: 6px 10px;
+            border-radius: 6px;
+        }
+        .stat-val {
+            font-weight: bold;
+            color: #00e5ff;
+        }
+        @media (max-width: 700px) {
+            .card { width: 90%; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>TOPIC-K Architecture: Base Unit (BU)</h1>
+    <div class="subtitle">Sigmoid Activations (Except Final Cubic) · Moons · Circles · Classic XOR · Clean Spirals</div>
+
+    <div class="container">
+        <div class="card">
+            <h2>Make Moons</h2>
+            <div class="stats">
+                <div>Iter: <span id="moons-iter" class="stat-val">0</span></div>
+                <div>Loss: <span id="moons-loss" class="stat-val">0.0000</span></div>
+            </div>
+            <canvas id="moonsCanvas" width="340" height="340"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Make Circles</h2>
+            <div class="stats">
+                <div>Iter: <span id="circles-iter" class="stat-val">0</span></div>
+                <div>Loss: <span id="circles-loss" class="stat-val">0.0000</span></div>
+            </div>
+            <canvas id="circlesCanvas" width="340" height="340"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Classic XOR (4 Tiles)</h2>
+            <div class="stats">
+                <div>Iter: <span id="xor-iter" class="stat-val">0</span></div>
+                <div>Loss: <span id="xor-loss" class="stat-val">0.0000</span></div>
+            </div>
+            <canvas id="xorCanvas" width="340" height="340"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Clean Spirals</h2>
+            <div class="stats">
+                <div>Iter: <span id="spirals-iter" class="stat-val">0</span></div>
+                <div>Loss: <span id="spirals-loss" class="stat-val">0.0000</span></div>
+            </div>
+            <canvas id="spiralsCanvas" width="340" height="340"></canvas>
+        </div>
+    </div>
+
+<script>
+// =========================================================================
+// 1. DATASET SYNTHESIS 
+// =========================================================================
+function generateMoons(samples = 120, noise = 0.05) {
+    const data = [];
+    const n_out = Math.floor(samples / 2);
+    const n_in = samples - n_out;
+    for (let i = 0; i < n_out; i++) {
+        let theta = (i / (n_out - 1)) * Math.PI;
+        let x = Math.cos(theta) + (Math.random() - 0.5) * noise;
+        let y = Math.sin(theta) + (Math.random() - 0.5) * noise;
+        data.push({x: [x, y], y: 0});
+    }
+    for (let i = 0; i < n_in; i++) {
+        let theta = (i / (n_in - 1)) * Math.PI;
+        let x = 1 - Math.cos(theta) + (Math.random() - 0.5) * noise;
+        let y = 0.5 - Math.sin(theta) + (Math.random() - 0.5) * noise;
+        data.push({x: [x, y], y: 1});
+    }
+    return data;
+}
+
+function generateCircles(samples = 120, noise = 0.04, factor = 0.5) {
+    const data = [];
+    const n_out = Math.floor(samples / 2);
+    const n_in = samples - n_out;
+    for (let i = 0; i < n_out; i++) {
+        let theta = (i / n_out) * 2 * Math.PI;
+        let x = Math.cos(theta) + (Math.random() - 0.5) * noise;
+        let y = Math.sin(theta) + (Math.random() - 0.5) * noise;
+        data.push({x: [x, y], y: 0});
+    }
+    for (let i = 0; i < n_in; i++) {
+        let theta = (i / n_in) * 2 * Math.PI;
+        let x = Math.cos(theta) * factor + (Math.random() - 0.5) * noise;
+        let y = Math.sin(theta) * factor + (Math.random() - 0.5) * noise;
+        data.push({x: [x, y], y: 1});
+    }
+    return data;
+}
+
+// =========================================================================
+// CLASSIC XOR (4 TILES) - Clean, non-squished, well-separated
+// =========================================================================
+function generateClassicXOR(samples = 120, noise = 0.00) {
+    const data = [];
+    const perQuad = Math.floor(samples / 4);
+    
+    const quadrants = [
+        { xCenter: -0.5, yCenter: -0.5, label: 0 },
+        { xCenter: 0.5, yCenter: -0.5, label: 1 },
+        { xCenter: -0.5, yCenter: 0.5, label: 1 },
+        { xCenter: 0.5, yCenter: 0.5, label: 0 }
+    ];
+    
+    for (let q = 0; q < 4; q++) {
+        const base = quadrants[q];
+        const tileSize = 0.7;
+        
+        for (let i = 0; i < perQuad; i++) {
+            let x = base.xCenter + (Math.random() - 0.5) * tileSize;
+            let y = base.yCenter + (Math.random() - 0.5) * tileSize;
+            x += (Math.random() - 0.5) * noise;
+            y += (Math.random() - 0.5) * noise;
+            x = Math.min(1.2, Math.max(-1.2, x));
+            y = Math.min(1.2, Math.max(-1.2, y));
+            data.push({x: [x, y], y: base.label});
+        }
+    }
+    
+    while (data.length < samples) {
+        let q = Math.floor(Math.random() * 4);
+        const base = quadrants[q];
+        const tileSize = 0.7;
+        let x = base.xCenter + (Math.random() - 0.5) * tileSize;
+        let y = base.yCenter + (Math.random() - 0.5) * tileSize;
+        x += (Math.random() - 0.5) * noise;
+        y += (Math.random() - 0.5) * noise;
+        x = Math.min(1.2, Math.max(-1.2, x));
+        y = Math.min(1.2, Math.max(-1.2, y));
+        data.push({x: [x, y], y: base.label});
+    }
+    
+    for (let i = data.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [data[i], data[j]] = [data[j], data[i]];
+    }
+    
+    return data;
+}
+
+// =========================================================================
+// CLEAN SPIRALS - Less noise, no overlap
+// =========================================================================
+function generateSpirals(samples = 140, noise = 0.025, rotations = 2.5) {
+    const data = [];
+    const half = Math.floor(samples / 2);
+    
+    for (let i = 0; i < half; i++) {
+        let t = (i / half) * rotations * 2 * Math.PI;
+        let r = 0.15 + (i / half) * 0.85;
+        let x = r * Math.cos(t) + (Math.random() - 0.5) * noise;
+        let y = r * Math.sin(t) + (Math.random() - 0.5) * noise;
+        data.push({x: [x, y], y: 0});
+    }
+    
+    for (let i = 0; i < samples - half; i++) {
+        let t = (i / (samples - half)) * rotations * 2 * Math.PI + Math.PI;
+        let r = 0.15 + (i / (samples - half)) * 0.85;
+        let x = r * Math.cos(t) + (Math.random() - 0.5) * noise;
+        let y = r * Math.sin(t) + (Math.random() - 0.5) * noise;
+        data.push({x: [x, y], y: 1});
+    }
+    
+    return data;
+}
+
+// =========================================================================
+// 2. TOPIC-K BASE UNIT (BU) — Sigmoid activations except final cubic
+// =========================================================================
+const INPUT_DIM = 2;
+const NUM_PARAGRAPHS = 1;
+const PARAM_SIZE = 31;
+
+
+function sigmoid(x) {
+    return 1 / (1 + Math.exp(-x))
+}
+
+function tanh(x) {
+    return Math.tanh(x)
+}
+
+// Sigmoid activation function (used for all internal layers)
+function activate(x) { 
+    return sigmoid(x)
+}
+
+
+function forwardBU(input, params) {
+    let idx = 0;
+
+    const compWeights = [params[idx++], params[idx++]]; 
+    const fuseWeights = [
+        [params[idx++], params[idx++]], 
+        [params[idx++], params[idx++]]
+    ];
+    const fuseBias = [params[idx++], params[idx++]];
+
+    const perspWeights = [];
+    for(let p=0; p<NUM_PARAGRAPHS; p++) {
+        perspWeights.push([params[idx++], params[idx++]]);
+    }
+    const perspBias = [params[idx++], params[idx++], params[idx++]];
+
+    const insightWeights = [];
+    for(let c=0; c<INPUT_DIM; c++) {
+        insightWeights.push([params[idx++], params[idx++], params[idx++]]);
+    }
+    const insightBias = [params[idx++], params[idx++]];
+
+    const summaryWeights = [];
+    for(let s=0; s<(NUM_PARAGRAPHS + INPUT_DIM); s++) {
+        summaryWeights.push(params[idx++]);
+    }
+    const summaryBias = params[idx++];
+
+    // Input layer: sigmoid activation
+    const t = [tanh(input[0]), tanh(input[1])];
+
+    // Composition: linear combination with weights
+    const t_prime = [
+        t[1] * compWeights[0], 
+        t[0] * compWeights[1]  
+    ];
+
+    // Fuse layer: sigmoid activation
+    const h0 = [
+        activate(t[0] * fuseWeights[0][0] + t_prime[0] * fuseWeights[0][1] + fuseBias[0]),
+        activate(t[1] * fuseWeights[1][0] + t_prime[1] * fuseWeights[1][1] + fuseBias[1])
+    ];
+
+    // Hidden layers: sigmoid activation
+    const D = [h0]; 
+
+    // Perspective layer: sigmoid activation
+    const e = [];
+    for (let p = 0; p < NUM_PARAGRAPHS; p++) {
+        let val = D[p][0] * perspWeights[p][0] + D[p][1] * perspWeights[p][1] + perspBias[p];
+        e.push(activate(val));
+    }
+
+    // Insights layer: sigmoid activation
+    const insights = [];
+    for (let col = 0; col < INPUT_DIM; col++) {
+        let val = D[0][col] * insightWeights[col][0] + D[1][col] * insightWeights[col][1] + D[2][col] * insightWeights[col][2] + insightBias[col];
+        insights.push(activate(val));
+    }
+
+    // Summary layer: linear combination + final cubic
+    const summarySet = [...e, ...insights];
+    let finalLogit = summaryBias;
+    for (let s = 0; s < summarySet.length; s++) {
+        finalLogit += summarySet[s] * summaryWeights[s];
+    }
+
+    // Final output: cubic activation
+    return sigmoid(finalLogit) 
+}
+
+function evaluateLoss(dataset, params) {
+    let totalLoss = 0;
+    for (let i = 0; i < dataset.length; i++) {
+        let pred = forwardBU(dataset[i].x, params);
+        // Clamp prediction to avoid log issues
+        pred = Math.max(1e-15, Math.min(1 - 1e-15, pred));
+        let target = dataset[i].y;
+        totalLoss -= target * Math.log(pred) + (1 - target) * Math.log(1 - pred);
+    }
+    return totalLoss / dataset.length;
+}
+
+// =========================================================================
+// 3. PARTICLE SWARM OPTIMIZATION (PSO)
+// =========================================================================
+class Particle {
+    constructor() {
+        this.position = new Float32Array(PARAM_SIZE);
+        this.velocity = new Float32Array(PARAM_SIZE);
+        this.bestPosition = new Float32Array(PARAM_SIZE);
+        this.bestLoss = Infinity;
+
+        for (let i = 0; i < PARAM_SIZE; i++) {
+            this.position[i] = (Math.random() - 0.5) * 3.0;
+            this.velocity[i] = (Math.random() - 0.5) * 0.5;
+            this.bestPosition[i] = this.position[i];
+        }
+    }
+}
+
+class SwarmOptimizer {
+    constructor(dataset, swarmSize = 30) {
+        this.dataset = dataset;
+        this.swarmSize = swarmSize;
+        this.particles = Array.from({length: swarmSize}, () => new Particle());
+        this.globalBestPosition = new Float32Array(PARAM_SIZE);
+        this.globalBestLoss = Infinity;
+
+        this.inertia = 0.75;
+        this.cognitive = 1.45; 
+        this.social = 1.45;    
+    }
+
+    step() {
+        for (let p of this.particles) {
+            let loss = evaluateLoss(this.dataset, p.position);
+            if (loss < p.bestLoss) {
+                p.bestLoss = loss;
+                p.bestPosition.set(p.position);
+            }
+            if (loss < this.globalBestLoss) {
+                this.globalBestLoss = loss;
+                this.globalBestPosition.set(p.position);
+            }
+        }
+
+        for (let p of this.particles) {
+            for (let i = 0; i < PARAM_SIZE; i++) {
+                let r1 = Math.random();
+                let r2 = Math.random();
+                
+                p.velocity[i] = (this.inertia * p.velocity[i]) +
+                                (this.cognitive * r1 * (p.bestPosition[i] - p.position[i])) +
+                                (this.social * r2 * (this.globalBestPosition[i] - p.position[i]));
+                
+                p.velocity[i] = Math.max(-1.2, Math.min(1.2, p.velocity[i]));
+                p.position[i] += p.velocity[i];
+            }
+        }
+    }
+}
+
+// =========================================================================
+// 4. COORDINATION & VISUAL RENDERING
+// =========================================================================
+const moonsData = generateMoons(100, 0.05);
+const circlesData = generateCircles(100, 0.05, 0.5);
+const xorData = generateClassicXOR(120, 0.04);
+const spiralsData = generateSpirals(140, 0.025, 2.5);
+
+const moonsSwarm = new SwarmOptimizer(moonsData, 30);
+const circlesSwarm = new SwarmOptimizer(circlesData, 30);
+const xorSwarm = new SwarmOptimizer(xorData, 30);
+const spiralsSwarm = new SwarmOptimizer(spiralsData, 35);
+
+function drawBoundary(canvasId, dataset, bestParams, xMin, xMax, yMin, yMax) {
+    const canvas = document.getElementById(canvasId);
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    ctx.clearRect(0, 0, width, height);
+
+    const resolution = 5; 
+    const xScale = width / (xMax - xMin);
+    const yScale = height / (yMax - yMin);
+
+    for (let px = 0; px < width; px += resolution) {
+        for (let py = 0; py < height; py += resolution) {
+            let x_coord = xMin + (px / width) * (xMax - xMin);
+            let y_coord = yMax - (py / height) * (yMax - yMin);
+
+            let prob = forwardBU([x_coord, y_coord], bestParams);
+            // Clamp probability for visualization
+            prob = Math.max(0, Math.min(1, prob));
+            
+            let r = Math.floor(200 * (1 - prob) + 55);
+            let b = Math.floor(200 * prob + 55);
+            ctx.fillStyle = "rgba(" + r + ", 40, " + b + ", 0.20)";
+            ctx.fillRect(px, py, resolution, resolution);
+        }
+    }
+
+    // scatter points
+    for (let i = 0; i < dataset.length; i++) {
+        let point = dataset[i];
+        let cx = ((point.x[0] - xMin) / (xMax - xMin)) * width;
+        let cy = (1.0 - (point.x[1] - yMin) / (yMax - yMin)) * height;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = (point.y === 0) ? '#ff6b6b' : '#4ecdc4';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 0.8;
+        ctx.fill();
+        ctx.stroke();
+    }
+}
+
+let iterationCount = 0;
+
+function updateDashboard() {
+    moonsSwarm.step();
+    circlesSwarm.step();
+    xorSwarm.step();
+    spiralsSwarm.step();
+    iterationCount++;
+
+    document.getElementById('moons-iter').innerText = iterationCount;
+    document.getElementById('moons-loss').innerText = moonsSwarm.globalBestLoss.toFixed(5);
+    
+    document.getElementById('circles-iter').innerText = iterationCount;
+    document.getElementById('circles-loss').innerText = circlesSwarm.globalBestLoss.toFixed(5);
+
+    document.getElementById('xor-iter').innerText = iterationCount;
+    document.getElementById('xor-loss').innerText = xorSwarm.globalBestLoss.toFixed(5);
+
+    document.getElementById('spirals-iter').innerText = iterationCount;
+    document.getElementById('spirals-loss').innerText = spiralsSwarm.globalBestLoss.toFixed(5);
+
+    drawBoundary('moonsCanvas', moonsData, moonsSwarm.globalBestPosition, -1.5, 2.5, -1.5, 2.5);
+    drawBoundary('circlesCanvas', circlesData, circlesSwarm.globalBestPosition, -1.5, 2.5, -1.5, 2.5);
+    drawBoundary('xorCanvas', xorData, xorSwarm.globalBestPosition, -1.3, 1.3, -1.3, 1.3);
+    drawBoundary('spiralsCanvas', spiralsData, spiralsSwarm.globalBestPosition, -1.3, 1.3, -1.3, 1.3);
+
+    requestAnimationFrame(updateDashboard);
+}
+
+// start the loop
+requestAnimationFrame(updateDashboard);
+</script>
+</body>
+</html>
